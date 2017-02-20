@@ -1,0 +1,221 @@
+---
+title: "Pratical Machine Learning Course Project"
+author: "Serge NYOKA"
+date: "20 fev 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## INTRODUCTION
+
+**Background**
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+**Data**
+
+The training data for this project are available here : https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available here : https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+**Goal**
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We may use any of the other variables to predict with. We should create a report describing how we built your model, how we used cross validation, what we think the expected out of sample error is, and why we made the choices we did. We will also use your prediction model to predict 20 different test cases.
+
+
+
+## PROCESSING
+
+## 1. Loading the csv's datasets from working directory.
+
+In Examining the two datasets, it can be seen that the missing values are represented by : "NA", "" and #DIV/0!". 
+Thus, we indicate that the value of these missing data is converted to NA.
+
+```{r}
+
+trainingData <- read.csv("pml-training.csv", na.strings = c("NA", "", "#DIV/0!"), stringsAsFactors = F)
+testingData <- read.csv("pml-testing.csv", na.strings = c("NA", "", "#DIV/0!"), stringsAsFactors = F)
+```
+
+
+
+## 2. Loading the required libraries
+
+The CARET (Classification and Regression Training) library facilitates the use of machine learning algorithms. 
+It will offer us to tune the machine learning model and propose optimal ntree and mtry.
+
+
+```{r eval=TRUE}
+library(caret) 
+library(randomForest)
+```
+
+
+
+## 3. Data Exploratory analysis
+
+Looking at the data structuring. They content 160 variables of 19622 obs and 20 obs but we display only first 10.
+
+```{r}
+str(trainingData, list.len=10)
+```
+
+
+Removing columns with more than 80% NA observations
+```{r}
+sub_Data <- apply(!is.na(trainingData), 2, sum) > (19622*0.8)
+trainingData <- trainingData[, sub_Data]
+testingData <- testingData[, sub_Data]
+```
+By this cleaning operation 100 variables are eliminated. We only have 60.
+
+
+Let's continue cleaning by removing the first 6 columns containing information that is not useful for creating our model.
+```{r}
+trainingData <- trainingData[, -(1:6)]
+testingData <- testingData[, -(1:6)]
+```
+This second performing again gives us 54 variables.
+
+
+
+## 4. Training option in caret
+
+Segment the data to create a partition of training dataset with 70% for the training of model building and other 30% testing the accuracy of our model.For our modeli performing, we will be interested in the variable "classe".
+
+```{r}
+set.seed(74)
+
+split_training <- createDataPartition(y=trainingData$classe, p=0.70, list = FALSE)
+partition_1 <- trainingData[split_training, ]
+partition_2 <- trainingData[-split_training, ]
+dim(partition_1); dim(partition_2)
+```
+ 
+ 
+ 
+ 
+## 5. Fitting our model
+
+We will try to select the variables according to their importance to perfect our preliminary model with fewer variables to gain in
+calculation time and in precision. Therefore, we will run the algorithm "Random Forest" with fewer parameters and ntree = 100 then 
+we will display a graph with variable estimation on their importance with the "varImport ()" function.
+
+
+```{r}
+data_RF <- randomForest(as.factor(classe) ~., data=partition_1, importance=TRUE, ntree=100)
+partition_1$classe <- as.factor(partition_1$classe)
+```
+
+Display importace's graphs
+
+
+```{r}
+varImpPlot(data_RF)
+```
+According the graphs above, we can choose the ten tops variables as appropriate to our model.They are : yaw_belt, roll_belt, magnet_dumbbell_z, num_window, pitch_belt, magnet_dumbbell_y, gyros_dumbbell_z, pitch_forearm, gyros_arm_y, roll_forearm.
+
+To refine our analysis, we calculate the correlations between the 10 remaining variables and eliminate one of 2 variables correlated to more than 80%.
+
+
+```{r}
+var_Cor <- cor(partition_1[ , c("yaw_belt", "roll_belt", "magnet_dumbbell_z", "num_window", "pitch_belt", "magnet_dumbbell_y", "gyros_dumbbell_z", "pitch_forearm", "gyros_arm_y", "roll_forearm")]) 
+diag(var_Cor) <- 0
+which(abs(var_Cor) > 0.80, arr.ind = TRUE)
+```
+The result shows that the variables roll_belt and yaw_bel are strongly correlated with each other. Thus, we are obliged to eliminate one of them, we put aside roll_belt and keep yaw_belt.
+ 
+
+## 6. Performing our model with the 9 importants variables
+
+We use the "RF"(Random Forest) Model with The resampling method "CV", 3 resampling iterations and a control of the computational nuances of the train function.
+
+```{r}
+model_fit <- train(classe ~yaw_belt+magnet_dumbbell_z+num_window+pitch_belt+magnet_dumbbell_y+gyros_dumbbell_z+pitch_forearm+gyros_arm_y+roll_forearm, 
+                   method="rf", data=partition_1, trControl = trainControl(method = "cv", number = 3), verboseIter=F)
+```
+
+
+Inspect the model
+
+```{r}
+model_fit$finalModel
+```
+We can constate that the building of model decided to use 500 trees and try 5 variables at each split.
+
+
+
+
+## 7. Evaluation and approval of our model
+
+Predict on the testing set. We apply our model to the 30% of test data "partition_2" to predict the "classe" variable
+
+```{r}
+partition_2$classe <- as.factor(partition_2$classe)
+predict_var <- predict(model_fit, newdata=partition_2)
+```
+
+```{r}
+qplot(predict_var, colour=classe, data=partition_2)
+```
+
+
+Estimation of error with the confusion matrix
+
+```{r}
+confusionMatrix(partition_2$classe, predict_var)
+```
+The values of kappa and accuracy are high, which means that our model is good.  With  99,83 % of accuracy and out-of-sample error 
+less than 0,20 %.Thus, we approbe the model and we can apply it on the entire training dataset.
+
+
+**Trying to predict on the entire training dataset "trainingData" before predicting on testing dataset "testingData"**
+```{r}
+trainingData$classe <- as.factor(trainingData$classe)
+
+model_fit <- train(classe ~yaw_belt+magnet_dumbbell_z+num_window+pitch_belt+magnet_dumbbell_y+gyros_dumbbell_z+pitch_forearm+gyros_arm_y+roll_forearm,
+                   method="rf", data=trainingData, trControl = trainControl(method = "cv"), number = 3, verboseIter=F)
+```
+
+
+
+ 
+## COURSE_PROJECT SUBMISSION
+
+We apply the model on the testing dataset to predict the observation's label 
+
+```{r}
+predict_testing <- predict(model_fit, newdata=testingData)
+predict_testing <- as.character(predict_testing)
+```
+
+
+
+**Creation of 20 text files for submission**
+
+```{r}
+write_subfiles <- function(x) {
+n <- length(x)
+for(i in 1:n){
+filename <- paste0("problem_id_", i, ".txt")
+write.table(x[i], file=filename, quote = FALSE, row.names = FALSE, col.names = FALSE)
+}
+}
+```
+
+
+
+**Create individual prediction labal files four submission**
+
+```{r}
+write_subfiles(predict_testing)
+```
+
+
